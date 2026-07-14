@@ -1,0 +1,13 @@
+[Unit]
+Description=Suspend desktop 5 minutes after locking screen
+After=graphical-session.target
+BindsTo=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/.local/bin/lock-suspend-timer.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

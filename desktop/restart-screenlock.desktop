@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Name=Restart ScreenLock
+Comment=Restart the lock-suspend background service
+Exec=bash -c "systemctl --user restart lock-suspend.service && notify-send 'ScreenLock' 'Service restarted successfully!'"
+Icon=system-restart
+Categories=Utility;
