@@ -33,6 +33,31 @@ should still suspend after being left locked and unattended for a while.
   stock Ubuntu). The script checks for these at startup and exits with a clear error if
   any are missing.
 
+## Power management settings
+
+This does not require any GNOME power settings to be changed — it just listens for the
+lock signal and layers on top of whatever's already configured. The one real
+prerequisite is that locking still has to happen somehow (manual `Super+L`, or GNOME's
+own idle-triggered auto-lock); if lock is fully disabled and you never lock manually
+either, there's never an event for the script to react to.
+
+That said, most stock Ubuntu/GNOME installs also ship GNOME's own idle-based
+**Automatic Suspend** (`Settings → Power → Automatic Suspend`, i.e.
+`org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type` /
+`sleep-inactive-battery-type`) turned on by default. That's a second, independent
+suspend trigger — harmless to run alongside this script (`systemctl suspend` is
+idempotent, so there's no conflict), but since GNOME's timer counts from the start of
+overall inactivity while this script counts from the lock event, this script's timer
+usually fires first once locked, so the machine may end up suspending sooner than
+GNOME's own power settings suggest.
+
+If you want this script's "suspend 5 minutes after lock" rule to be the actual,
+predictable suspend policy rather than a redundant second timer, turn off GNOME's
+Automatic Suspend (or set `sleep-inactive-ac-type`/`sleep-inactive-battery-type` to
+`nothing`) so this is the only thing putting the machine to sleep. Screen blanking
+(`idle-delay`) is unaffected either way — auto-lock-on-idle fires the same signal as a
+manual lock, so it works identically regardless of that setting.
+
 ## Install
 
 ```bash
