@@ -36,21 +36,26 @@ should still suspend after being left locked and unattended for a while.
 ## Install
 
 ```bash
-# 1. Script
-mkdir -p ~/.local/bin
-cp bin/lock-suspend-timer.sh ~/.local/bin/
-chmod +x ~/.local/bin/lock-suspend-timer.sh
-
-# 2. Systemd user service
-mkdir -p ~/.config/systemd/user
-cp systemd/lock-suspend.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now lock-suspend.service
-
-# 3. Desktop launcher (optional, lets you restart the service from your app menu)
-mkdir -p ~/.local/share/applications
-cp desktop/restart-screenlock.desktop ~/.local/share/applications/
+./install.sh
 ```
+
+This symlinks `bin/lock-suspend-timer.sh`, `systemd/lock-suspend.service`, and
+`desktop/restart-screenlock.desktop` into `~/.local/bin`, `~/.config/systemd/user`, and
+`~/.local/share/applications` respectively (backing up any existing non-symlink file
+first), then reloads and (re)starts the service. Safe to re-run any time.
+
+Because the installed files are symlinks *into this clone* rather than copies, there's
+nothing to keep in sync by hand — see [Update](#update) below.
+
+## Update
+
+```bash
+./update.sh
+```
+
+Runs `git pull` and then `install.sh` again — the equivalent of `apt update && apt
+full-upgrade` for this repo. Since install uses symlinks, there's no copying involved;
+this just pulls the latest code and restarts the service so it picks it up.
 
 ## Verify it's running
 
@@ -72,4 +77,7 @@ rm ~/.local/bin/lock-suspend-timer.sh
 rm ~/.local/share/applications/restart-screenlock.desktop
 systemctl --user daemon-reload
 ```
+
+(These are symlinks if installed via `install.sh`, so `rm` just removes the link — the
+repo clone itself is untouched.)
 
