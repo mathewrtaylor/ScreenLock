@@ -2,6 +2,8 @@
 Description=Suspend desktop 5 minutes after locking screen
 After=graphical-session.target
 BindsTo=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple

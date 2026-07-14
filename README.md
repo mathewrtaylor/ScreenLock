@@ -10,8 +10,12 @@ should still suspend after being left locked and unattended for a while.
 - `bin/lock-suspend-timer.sh` runs as a systemd user service. It uses `dbus-monitor` to
   watch the session bus for the GNOME screensaver's `ActiveChanged` signal
   (`org.gnome.ScreenSaver`).
-- When a lock event (`boolean true`) is seen, it sleeps for 300 seconds.
-- When the sleep ends, it re-checks the *current* lock state via
+- When a lock event (`boolean true`) is seen, it starts a 300-second countdown in the
+  background and keeps watching for further signals. A relock partway through cancels the
+  in-flight countdown and starts a fresh 300s timer; an unlock (`boolean false`) cancels it
+  outright, so rapid lock/unlock cycles are always tracked correctly instead of the outcome
+  depending on whichever countdown happened to start first.
+- When a countdown runs to completion, it re-checks the *current* lock state via
   `loginctl show-session --property=LockedHint` rather than trusting the original event.
   If the session is still locked, it runs `systemctl suspend`. If you unlocked before the
   timer ran out, it does nothing and goes back to watching for the next lock.
@@ -69,11 +73,3 @@ rm ~/.local/share/applications/restart-screenlock.desktop
 systemctl --user daemon-reload
 ```
 
-## Known limitations
-
-- The script reads `dbus-monitor` output through a single sequential loop, so while a
-  300-second countdown is already sleeping, a new lock/unlock/relock cycle won't start a
-  *second* concurrent countdown — the pending timer's `loginctl` re-check at expiry is
-  what actually decides whether to suspend, so the outcome is always correct, but a new
-  visible countdown can be delayed until the current one finishes. This only matters if
-  you lock/unlock several times within the same 5-minute window.
