@@ -14,6 +14,16 @@ echo "Lock-suspend service started. Monitoring D-Bus for screen lock signals..."
 # Force path safety and handle standard user session bus
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 
+# Prefer $XDG_SESSION_ID (set by the graphical session this service is
+# bound to) since it can't be mismatched the way username-grepping can
+# when multiple sessions/users are logged in. Fall back to the old
+# lookup only if it's somehow unset.
+current_lock_state() {
+    local session
+    session="${XDG_SESSION_ID:-$(loginctl list-sessions | grep "$(id -un)" | awk '{print $1}' | head -n 1)}"
+    loginctl show-session "$session" --property=LockedHint | cut -d= -f2
+}
+
 # Runs as a background job so the main loop stays free to react to further
 # lock/unlock events instead of being blocked inside `sleep 300`. Traps TERM
 # so a cancellation (see cancel_countdown) also kills the sleep child instead
@@ -24,14 +34,7 @@ run_countdown() {
     SLEEP_PID=$!
     wait "$SLEEP_PID"
 
-    # Prefer $XDG_SESSION_ID (set by the graphical session this service is
-    # bound to) since it can't be mismatched the way username-grepping can
-    # when multiple sessions/users are logged in. Fall back to the old
-    # lookup only if it's somehow unset.
-    USER_SESSION="${XDG_SESSION_ID:-$(loginctl list-sessions | grep "$(id -un)" | awk '{print $1}' | head -n 1)}"
-
-    # Pull the absolute session lock status using the explicit session ID
-    IS_LOCKED=$(loginctl show-session "$USER_SESSION" --property=LockedHint | cut -d= -f2)
+    IS_LOCKED=$(current_lock_state)
     echo "Countdown finished. Current lock state check returned: $IS_LOCKED"
 
     if [ "$IS_LOCKED" = "yes" ]; then
@@ -53,22 +56,56 @@ cancel_countdown() {
     COUNTDOWN_PID=""
 }
 
-COUNTDOWN_PID=""
+# GNOME's ActiveChanged broadcast can be dropped or delayed by a stalled
+# gnome-shell (observed as a "Couldn't lock screen: Timeout was reached"
+# D-Bus error), which would otherwise leave the countdown permanently out of
+# sync with reality. Called after 60s of D-Bus silence to catch that case
+# instead of trusting the signal alone.
+reconcile_state() {
+    local is_locked countdown_active=false
+    if [ -n "$COUNTDOWN_PID" ] && kill -0 "$COUNTDOWN_PID" 2>/dev/null; then
+        countdown_active=true
+    fi
+    is_locked=$(current_lock_state)
 
-dbus-monitor --session "type='signal',interface='org.gnome.ScreenSaver'" | while read -r line; do
-    if echo "$line" | grep -q "boolean true"; then
-        if [ -n "$COUNTDOWN_PID" ] && kill -0 "$COUNTDOWN_PID" 2>/dev/null; then
-            echo "Lock screen detected again during an active countdown — restarting the 5-minute timer."
-        else
-            echo "Lock screen detected! Starting 5-minute (300s) countdown..."
-        fi
-        cancel_countdown
+    if [ "$is_locked" = "yes" ] && [ "$countdown_active" = false ]; then
+        echo "Reconcile: session is locked but no countdown was running (missed lock signal?). Starting countdown."
         run_countdown &
         COUNTDOWN_PID=$!
-    elif echo "$line" | grep -q "boolean false"; then
-        if [ -n "$COUNTDOWN_PID" ] && kill -0 "$COUNTDOWN_PID" 2>/dev/null; then
-            echo "Screen unlocked — cancelling pending suspend countdown."
+    elif [ "$is_locked" = "no" ] && [ "$countdown_active" = true ]; then
+        echo "Reconcile: session is unlocked but a countdown was still running (missed unlock signal?). Cancelling."
+        cancel_countdown
+    fi
+}
+
+COUNTDOWN_PID=""
+
+dbus-monitor --session "type='signal',interface='org.gnome.ScreenSaver'" | while true; do
+    if read -r -t 60 line; then
+        if echo "$line" | grep -q "boolean true"; then
+            if [ -n "$COUNTDOWN_PID" ] && kill -0 "$COUNTDOWN_PID" 2>/dev/null; then
+                echo "Lock screen detected again during an active countdown — restarting the 5-minute timer."
+            else
+                echo "Lock screen detected! Starting 5-minute (300s) countdown..."
+            fi
             cancel_countdown
+            run_countdown &
+            COUNTDOWN_PID=$!
+        elif echo "$line" | grep -q "boolean false"; then
+            if [ -n "$COUNTDOWN_PID" ] && kill -0 "$COUNTDOWN_PID" 2>/dev/null; then
+                echo "Screen unlocked — cancelling pending suspend countdown."
+                cancel_countdown
+            fi
+        fi
+    else
+        rc=$?
+        # Exit status > 128 means the read timed out (bash convention for
+        # -t); anything else means the dbus-monitor pipe closed (it died),
+        # so fall through and let the script exit — systemd restarts it.
+        if [ "$rc" -gt 128 ]; then
+            reconcile_state
+        else
+            break
         fi
     fi
 done

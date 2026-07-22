@@ -19,6 +19,11 @@ should still suspend after being left locked and unattended for a while.
   `loginctl show-session --property=LockedHint` rather than trusting the original event.
   If the session is still locked, it runs `systemctl suspend`. If you unlocked before the
   timer ran out, it does nothing and goes back to watching for the next lock.
+- As a fallback for a dropped or delayed `ActiveChanged` broadcast (seen in practice during
+  a gnome-shell stall), the script also reconciles state after every 60 seconds of D-Bus
+  silence: it compares the actual `LockedHint` against whether a countdown is currently
+  running and starts or cancels one to match if they disagree, instead of trusting the
+  signal alone.
 - `systemd/lock-suspend.service` is the user-level systemd unit that keeps the script
   running (auto-restarts on crash) and ties its lifecycle to your graphical session.
 - `desktop/restart-screenlock.desktop` is an app-launcher icon that restarts the service
